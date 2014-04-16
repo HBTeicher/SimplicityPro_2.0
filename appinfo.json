@@ -1,0 +1,30 @@
+{
+    "versionLabel": "2.0.0",
+    "uuid": "e3607681-7688-492f-ac4f-34c0418bd133",
+    "appKeys": {},
+    "longName": "SimplicityPro",
+    "versionCode": 2,
+    "capabilities": [
+        ""
+    ],
+    "shortName": "SimplicityPro",
+    "companyName": "HBTeicher",
+    "watchapp": {
+        "watchface": true
+    },
+    "resources": {
+        "media": [
+            {
+                "type": "png",
+                "name": "BATTERY_ICON",
+                "file": "images/battery_icon.png"
+            },
+            {
+                "menuIcon": true,
+                "type": "png",
+                "name": "IMAGE_MENU_ICON",
+                "file": "images/menu_icon_simplicity.png"
+            }
+        ]
+    }
+}
