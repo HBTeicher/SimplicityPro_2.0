@@ -383,14 +383,15 @@ void init() {
  text_date_layer = text_layer_create(GRect(0, 94, 144, 168-94));
   text_layer_set_font(text_date_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
   text_layer_set_text_alignment(text_date_layer, GTextAlignmentCenter);
-  layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_date_layer));
 
   text_time_layer = text_layer_create(GRect(2, 112, 144-2, 168-112));
   text_layer_set_font(text_time_layer, fonts_get_system_font(FONT_KEY_ROBOTO_BOLD_SUBSET_49));
   text_layer_set_text_alignment(text_time_layer, GTextAlignmentCenter);
-  layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_time_layer));
 
   set_partial_inverse(persist_read_bool(100));
+
+  layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_date_layer));
+  layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_time_layer));
   
  // text_week_layer = text_layer_create(GRect(5, 3, 144-10, 21));
  //  text_layer_set_text_color(text_week_layer, GColorWhite);
