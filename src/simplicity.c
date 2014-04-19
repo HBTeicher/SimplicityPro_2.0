@@ -213,8 +213,38 @@ void handle_request_calendar_data(void *data){
  
 }
 
+void set_partial_inverse(bool partial_inverse) {
+  if (partial_inverse) {
+    text_layer_set_background_color(text_date_layer, GColorWhite);
+    text_layer_set_text_color(text_date_layer, GColorBlack);
+
+    text_layer_set_background_color(text_time_layer, GColorClear);
+    text_layer_set_text_color(text_time_layer, GColorBlack);
+  } else {
+    text_layer_set_background_color(text_date_layer, GColorClear);
+    text_layer_set_text_color(text_date_layer, GColorWhite);
+
+    text_layer_set_background_color(text_time_layer, GColorClear);
+    text_layer_set_text_color(text_time_layer, GColorWhite);
+  }
+}
+
 void handle_message_receive(DictionaryIterator *received, void *context) {
-  Tuple *tuple = dict_find(received, RECONNECT_KEY);
+  Tuple *tuple = dict_find(received, SETTINGS_RESPONSE_KEY);
+
+  if (tuple) {
+    tuple = dict_find(received, 100);
+
+    if (tuple) {
+      bool partial_inverse = tuple->value->uint8;
+      persist_write_bool(100, partial_inverse);
+      set_partial_inverse(partial_inverse);
+    }
+
+    return;
+  }
+
+  tuple = dict_find(received, RECONNECT_KEY);
 
   if (tuple) {
     app_timer_register(200, &handle_request_calendar_data, NULL);
@@ -351,18 +381,16 @@ void init() {
   window_set_background_color(window, GColorBlack);
 
  text_date_layer = text_layer_create(GRect(0, 94, 144, 168-94));
-  text_layer_set_text_color(text_date_layer, GColorWhite);
-  text_layer_set_background_color(text_date_layer, GColorClear);
   text_layer_set_font(text_date_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
   text_layer_set_text_alignment(text_date_layer, GTextAlignmentCenter);
   layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_date_layer));
 
   text_time_layer = text_layer_create(GRect(2, 112, 144-2, 168-112));
-  text_layer_set_text_color(text_time_layer, GColorWhite);
-  text_layer_set_background_color(text_time_layer, GColorClear);
   text_layer_set_font(text_time_layer, fonts_get_system_font(FONT_KEY_ROBOTO_BOLD_SUBSET_49));
   text_layer_set_text_alignment(text_time_layer, GTextAlignmentCenter);
   layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_time_layer));
+
+  set_partial_inverse(persist_read_bool(100));
   
  // text_week_layer = text_layer_create(GRect(5, 3, 144-10, 21));
  //  text_layer_set_text_color(text_week_layer, GColorWhite);
