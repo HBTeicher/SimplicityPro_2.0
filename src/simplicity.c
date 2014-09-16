@@ -41,7 +41,6 @@ static TextLayer 	*text_week_layer;
 static TextLayer 	*text_event_title_layer;
 static TextLayer 	*text_event_start_date_layer;
 static TextLayer 	*text_event_location_layer;
-static TextLayer	*text_warning_layer;
 static Layer 			*line_layer;
 static Layer 			*battery_layer;
 static GBitmap 		*icon_battery;
