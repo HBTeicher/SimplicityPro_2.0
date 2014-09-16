@@ -48,7 +48,7 @@ static GBitmap 		*icon_battery;
 // Connected info
 //static bool bluetooth_state_changed = false;
 static bool app_state_changed = true;
-static bool bluetooth_connected = false;
+static bool bluetooth_connected = true;
 static bool app_connected = true;
 static int 	current_day_number = 0;
 
@@ -67,7 +67,6 @@ static int g_last_tm_mday = -1;
 
 // Build a cache of dates vs day names
 static void ensure_close_day_cache() {
-	APP_LOG(APP_LOG_LEVEL_DEBUG_VERBOSE, "ensure_close_day_cache()");
   time_t now = time(NULL);
   struct tm *now_tm = localtime(&now);
 
@@ -196,34 +195,6 @@ void battery_layer_update_callback(Layer *layer, GContext *ctx) {
   }
 }
 
-void update_connection() {
-  // Only run when changed
-  if((app_state_changed != app_connected) && (bluetooth_connected)) {
-    app_state_changed = app_connected;
-    // Check smartwatch pro app status
-		if (!app_connected) {
-      // Display text in calendar view
-   		text_layer_set_text(text_event_start_date_layer, "App disconnected");
-      text_layer_set_text(text_event_title_layer, "WARNING!");
-      text_layer_set_text(text_event_location_layer, "");
-      // Vibrate hard 5 times
-      generate_vibe(7);
-    }
-		else {
-      // Vibrate 3 times
-      generate_vibe(3);
-    }
-  }
-}
-
-void handle_message_fail(DictionaryIterator *failed, AppMessageResult reason, void *context) {
-    if(reason == APP_MSG_NOT_CONNECTED){
-        // Connection to smartwatch pro app NOT OK!
-        app_connected = false;
-        update_connection();
-    }
-}
-
 void handle_request_battery_data(void *data) {
   DictionaryIterator *iter;
   app_message_outbox_begin(&iter);
@@ -255,13 +226,41 @@ void handle_request_calendar_data(void *data){
  
 }
 
+void update_connection() {
+  // Only run when changed
+  APP_LOG(APP_LOG_LEVEL_DEBUG_VERBOSE, "App state: %u\t App state changed:  %u\n", app_connected, app_state_changed);
+	if(app_state_changed && !app_connected) {
+		app_state_changed = false;
+		// Display text in calendar view
+		text_layer_set_text(text_event_start_date_layer, "App disconnected");
+		text_layer_set_text(text_event_title_layer, "WARNING!");
+		text_layer_set_text(text_event_location_layer, "");
+		// Vibrate hard 5 times
+		generate_vibe(7);
+	}
+	if (!app_state_changed && app_connected) {
+		app_state_changed = true;
+		text_layer_set_text(text_event_title_layer, event[0].title);
+		text_layer_set_text(text_event_start_date_layer, event_start_date_static);
+		text_layer_set_text(text_event_location_layer, event[0].has_location ? event[0].location : "");
+	}
+}
+
+void handle_message_fail(DictionaryIterator *failed, AppMessageResult reason, void *context) {
+    if(reason == APP_MSG_NOT_CONNECTED){
+        // Connection to smartwatch pro app NOT OK!
+        app_connected = false;
+        update_connection();
+    }
+}
+
 // handle BT status change related events
 void handle_bluetooth_connection(bool connected) {
   if(!bluetooth_connected && connected) {
 		// Connection to BT OK
     bluetooth_connected = true;
 		// Update event display
-		app_timer_register(500, &handle_request_calendar_data, NULL);
+		handle_request_calendar_data(NULL);
 		// Vibrate 3 times
 		generate_vibe(3);
 	}
@@ -275,7 +274,6 @@ void handle_bluetooth_connection(bool connected) {
 		// Vibrate hard 5 times
 		generate_vibe(7);
   }
-  update_connection(); 
 }
 
 void set_partial_inverse(bool partial_inverse) {
@@ -309,6 +307,7 @@ static void update_event_display() {
 }
 
 void handle_message_receive(DictionaryIterator *received, void *context) {
+	
   Tuple *tuple = dict_find(received, SETTINGS_RESPONSE_KEY);
 
   if (tuple) {
@@ -376,6 +375,7 @@ void handle_message_receive(DictionaryIterator *received, void *context) {
       }
     }
   }
+	
   // Connection to smartwatch pro app OK
   app_connected = true;
   update_connection();
