@@ -228,8 +228,7 @@ void handle_request_calendar_data(void *data){
 
 void update_connection() {
   // Only run when changed
-  APP_LOG(APP_LOG_LEVEL_DEBUG_VERBOSE, "App state: %u\t App state changed:  %u\n", app_connected, app_state_changed);
-	if(app_state_changed && !app_connected) {
+ 	if(app_state_changed && !app_connected) {
 		app_state_changed = false;
 		// Display text in calendar view
 		text_layer_set_text(text_event_start_date_layer, "App disconnected");
@@ -243,6 +242,7 @@ void update_connection() {
 		text_layer_set_text(text_event_title_layer, event[0].title);
 		text_layer_set_text(text_event_start_date_layer, event_start_date_static);
 		text_layer_set_text(text_event_location_layer, event[0].has_location ? event[0].location : "");
+		handle_request_calendar_data(NULL);
 	}
 }
 
@@ -260,6 +260,9 @@ void handle_bluetooth_connection(bool connected) {
 		// Connection to BT OK
     bluetooth_connected = true;
 		// Update event display
+		text_layer_set_text(text_event_title_layer, event[0].title);
+		text_layer_set_text(text_event_start_date_layer, event_start_date_static);
+		text_layer_set_text(text_event_location_layer, event[0].has_location ? event[0].location : "");
 		handle_request_calendar_data(NULL);
 		// Vibrate 3 times
 		generate_vibe(3);
