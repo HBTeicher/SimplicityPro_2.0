@@ -29,72 +29,143 @@
 
 #include "common.h"
 
-Window *window;
+#define TODAY "Today"
+#define TOMORROW "Tomorrow"
+#define ALL_DAY "All day"
+	
+// Window, Layer, and Bitmap declarations
+static Window 		*window;
+static TextLayer 	*text_date_layer;
+static TextLayer 	*text_time_layer;
+static TextLayer 	*text_week_layer;
+static TextLayer 	*text_event_title_layer;
+static TextLayer 	*text_event_start_date_layer;
+static TextLayer 	*text_event_location_layer;
+static Layer 			*line_layer;
+static Layer 			*battery_layer;
+static GBitmap 		*icon_battery;
 
-TextLayer *text_date_layer;
-TextLayer *text_time_layer;
-//TextLayer *text_week_layer;
-TextLayer *text_week_layer;
-
-Layer *line_layer;
-
-GBitmap *icon_battery;
-Layer *battery_layer;
-
-TextLayer *text_event_title_layer;
-TextLayer *text_event_start_date_layer;
-TextLayer *text_event_location_layer;
-
-// connected info
-static bool bluetooth_state_changed = true;
+// Connected info
+//static bool bluetooth_state_changed = false;
 static bool app_state_changed = true;
-static bool bluetooth_connected = true;
+static bool bluetooth_connected = false;
 static bool app_connected = true;
-
-static int current_day_number = 0; 
+static int 	current_day_number = 0;
 
 // Event array for storing two events
-Event event[2];
-Event last_event[2];
-static int event_count;
-static int event_hour;
-static int event_minute;
+Event 			event[2];
+Event 			last_event[2];
+static int	event_count;
 static char week_text[] = "W 00";
-static int alarm_event = 0;
+static int 	alarm_event = 0;
+static char event_start_date_static[BASIC_SIZE];
 
+// Itit battery status
 BatteryStatus battery_status;
+static CloseDay g_close[7];
+static int g_last_tm_mday = -1;
+
+// Build a cache of dates vs day names
+static void ensure_close_day_cache() {
+	APP_LOG(APP_LOG_LEVEL_DEBUG_VERBOSE, "ensure_close_day_cache()");
+  time_t now = time(NULL);
+  struct tm *now_tm = localtime(&now);
+
+  struct tm fiddle;
+
+  if (now_tm->tm_mday == g_last_tm_mday)
+    return;
+
+  g_last_tm_mday = now_tm->tm_mday;
+
+  for (int i = 0; i < 7; i++) {
+    memcpy(&fiddle, now_tm, sizeof(fiddle));
+    if (i > 0)
+      time_plus_day(&fiddle, i);
+    strftime(g_close[i].date, CLOSE_DATE_SIZE, "%m/%d", &fiddle);
+    strftime(g_close[i].day_name, CLOSE_DAY_NAME_SIZE, "%A", &fiddle);
+  }
+  strcpy(g_close[0].day_name, TODAY);
+  strcpy(g_close[1].day_name, TOMORROW);
+}
+
+static void modify_calendar_time(char *output, int outlen, char *date, bool all_day) {
+
+  // When "Show next events" is turned off in the app:
+  // MM/dd
+  // When "Show next events" is turned on:
+  // MM/dd/yy
+
+  // If all_day is false, time is added like so:
+  // MM/dd(/yy) H:mm
+  // If clock style is 12h, AM/PM is added:
+  // MM/dd(/yy) H:mm a
+  // Build a list of dates and day names closest to the current date
+  ensure_close_day_cache();
+
+  int time_position = 9;
+  if (date[5] != '/')
+    time_position = 6;
+
+  // Find the date in the list prepared
+  char temp[12];
+  bool found = false;
+  for (int i = 0; i < 7; i++) {
+    if (strncmp(g_close[i].date, date, 5) == 0) {
+      strncpy(temp, g_close[i].day_name, sizeof(temp));
+      found = true;
+      break;
+    }
+  }
+
+  // If not found then show the month and the day
+  if (!found) {
+    time_t now = time(NULL);
+    struct tm *now_tm = localtime(&now);
+    struct tm fiddle;
+    memcpy(&fiddle, now_tm, sizeof(fiddle));
+    fiddle.tm_mday = a_to_i(&date[3], 2);
+    fiddle.tm_mon = a_to_i(&date[0], 2) - 1;
+    strftime(temp, sizeof(temp), "%b %e -", &fiddle);
+  }
+  // Change the format based on whether there is a timestamp
+  if (all_day)
+    snprintf(output, outlen, "%s %s", temp, ALL_DAY);
+  else
+    snprintf(output, outlen, "%s %s", temp, &date[time_position]);
+}
 
 // Vibe generator 
 void generate_vibe(uint32_t vibe_pattern_number) {
   vibes_cancel();
   switch ( vibe_pattern_number ) {
-  case 0: // No Vibration
-    return;
-  case 1: // Single short
-    vibes_short_pulse();
-    break;
-  case 2: // Double short
-    vibes_double_pulse();
-    break;
-  case 3: // Triple
-    vibes_double_pulse();
-  case 4: // Long
-    vibes_double_pulse();
-    break;
-  case 5: // Subtle
-    vibes_double_pulse();
-    break;
-  case 6: // Less Subtle
-    vibes_double_pulse();
-    break;
-  case 7: // Not Subtle
-    vibes_double_pulse();
-    break;
- case 8: // Not Subtle
-    vibes_double_pulse();
-    break;
-  default: // No Vibration
-    return;
+		case 0: // No Vibration
+			return;
+		case 1: // Single short
+			vibes_short_pulse();
+			break;
+		case 2: // Double short
+			vibes_double_pulse();
+			break;
+		case 3: // Triple
+			vibes_double_pulse();
+		case 4: // Long
+			vibes_double_pulse();
+			break;
+		case 5: // Subtle
+			vibes_double_pulse();
+			break;
+		case 6: // Less Subtle
+			vibes_double_pulse();
+			break;
+		case 7: // Not Subtle
+			vibes_double_pulse();
+			break;
+	 case 8: // Not Subtle
+			vibes_double_pulse();
+			break;
+		default: // No Vibration
+			return;
   }
 }
 
@@ -125,53 +196,24 @@ void battery_layer_update_callback(Layer *layer, GContext *ctx) {
   }
 }
 
-void update_connection(){
+void update_connection() {
   // Only run when changed
-  if(bluetooth_state_changed != bluetooth_connected){
-    bluetooth_state_changed = bluetooth_connected;
-    // Check BT status
-    if(!bluetooth_connected){
-      // Display text in calendar view
-     text_layer_set_text(text_event_start_date_layer, "BT disconnected");
-      text_layer_set_text(text_event_title_layer, "WARNING!");
-      text_layer_set_text(text_event_location_layer, "");
-      // Vibrate hard 5 times
-      generate_vibe(7);
-    }else{
-      // Vibrate 3 times
-      generate_vibe(3);
-    }
-  }
-  // Only run when changed
-  if((app_state_changed != app_connected) && (bluetooth_connected)){
+  if((app_state_changed != app_connected) && (bluetooth_connected)) {
     app_state_changed = app_connected;
     // Check smartwatch pro app status
-    if(!app_connected){
+		if (!app_connected) {
       // Display text in calendar view
-   text_layer_set_text(text_event_start_date_layer, "App disconnected");
+   		text_layer_set_text(text_event_start_date_layer, "App disconnected");
       text_layer_set_text(text_event_title_layer, "WARNING!");
       text_layer_set_text(text_event_location_layer, "");
       // Vibrate hard 5 times
       generate_vibe(7);
-    }else{
+    }
+		else {
       // Vibrate 3 times
       generate_vibe(3);
     }
   }
-}
-
-void handle_bluetooth_connection(bool connected) {
-   if(connected){
-     // Check one extra time
-     if(bluetooth_connection_service_peek()){
-       // Connection to BT OK
-       bluetooth_connected = true;
-     }
-   }else{
-     // Connection to BT NOT OK!
-     bluetooth_connected = false;
-   }
-   update_connection(); 
 }
 
 void handle_message_fail(DictionaryIterator *failed, AppMessageResult reason, void *context) {
@@ -213,6 +255,29 @@ void handle_request_calendar_data(void *data){
  
 }
 
+// handle BT status change related events
+void handle_bluetooth_connection(bool connected) {
+  if(!bluetooth_connected && connected) {
+		// Connection to BT OK
+    bluetooth_connected = true;
+		// Update event display
+		app_timer_register(500, &handle_request_calendar_data, NULL);
+		// Vibrate 3 times
+		generate_vibe(3);
+	}
+	if (bluetooth_connected && !connected) {
+		// Connection to BT NOT OK!
+		bluetooth_connected = false;
+		// Display text in calendar view
+		text_layer_set_text(text_event_start_date_layer, "BT disconnected");
+		text_layer_set_text(text_event_title_layer, "WARNING!");
+		text_layer_set_text(text_event_location_layer, "");
+		// Vibrate hard 5 times
+		generate_vibe(7);
+  }
+  update_connection(); 
+}
+
 void set_partial_inverse(bool partial_inverse) {
   if (partial_inverse) {
     text_layer_set_background_color(text_date_layer, GColorWhite);
@@ -227,6 +292,20 @@ void set_partial_inverse(bool partial_inverse) {
     text_layer_set_background_color(text_time_layer, GColorClear);
     text_layer_set_text_color(text_time_layer, GColorWhite);
   }
+}
+
+static void update_event_display() {
+	char event_start_date[BASIC_SIZE];
+	for (int i = 0; i <= event_count; i++) {
+		modify_calendar_time(event_start_date, sizeof(event_start_date), event[i].start_date, event[i].all_day);
+		strncpy(event_start_date_static, event_start_date, sizeof(event_start_date));
+		text_layer_set_text(text_event_title_layer, event[i].title);
+		text_layer_set_text(text_event_start_date_layer, event_start_date_static);
+		text_layer_set_text(text_event_location_layer, event[i].has_location ? event[i].location : "");
+		layer_mark_dirty(text_layer_get_layer(text_event_title_layer));
+		layer_mark_dirty(text_layer_get_layer(text_event_start_date_layer));
+		layer_mark_dirty(text_layer_get_layer(text_event_location_layer));
+	}
 }
 
 void handle_message_receive(DictionaryIterator *received, void *context) {
@@ -269,19 +348,16 @@ void handle_message_receive(DictionaryIterator *received, void *context) {
               if((event[0].all_day) && (!event[1].all_day)){
                 if(title_new != 0 || start_date_new != 0){
                   // Display event on LCD
-                  text_layer_set_text(text_event_title_layer, event[1].title);
-                  text_layer_set_text(text_event_start_date_layer, event[1].start_date);
-                  text_layer_set_text(text_event_location_layer, event[1].has_location ? event[1].location : "");
+                	update_event_display();
                   // Set alarm on second event
                   alarm_event = 1;                
                 }
               }
-            }else{
+            }
+						else {
               if(title_new != 0 || start_date_new != 0){
                 // Display event on LCD
-                text_layer_set_text(text_event_title_layer, event[0].title);
-                text_layer_set_text(text_event_start_date_layer, event[0].start_date);
-                text_layer_set_text(text_event_location_layer, event[0].has_location ? event[0].location : "");
+                update_event_display();
                 // Set alarm on first event
                 alarm_event = 0;                
               }
@@ -380,7 +456,7 @@ void init() {
   window_stack_push(window, true /* Animated */);
   window_set_background_color(window, GColorBlack);
 
- text_date_layer = text_layer_create(GRect(0, 94, 144, 168-94));
+ 	text_date_layer = text_layer_create(GRect(0, 94, 144, 168-94));
   text_layer_set_font(text_date_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
   text_layer_set_text_alignment(text_date_layer, GTextAlignmentCenter);
 
@@ -393,19 +469,6 @@ void init() {
   layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_date_layer));
   layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_time_layer));
   
- // text_week_layer = text_layer_create(GRect(5, 3, 144-10, 21));
- //  text_layer_set_text_color(text_week_layer, GColorWhite);
-  // text_layer_set_background_color(text_week_layer, GColorClear);
-  // text_layer_set_font(text_week_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14));
-  // layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_week_layer));
-  // text_layer_set_text(text_week_layer, "Week");
-  
- // text_week_number_layer = text_layer_create(GRect(38, 3, 144-10, 21));
- // text_layer_set_text_color(text_week_number_layer, GColorWhite);
- // text_layer_set_background_color(text_week_number_layer, GColorClear);
- // text_layer_set_font(text_week_number_layer, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD));
- // layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_week_number_layer));
-
 	text_week_layer = text_layer_create(GRect(0, -5, 50, 28));
   text_layer_set_text_color(text_week_layer, GColorWhite);
   text_layer_set_background_color(text_week_layer, GColorClear);
@@ -413,34 +476,37 @@ void init() {
   text_layer_set_text_alignment(text_week_layer, GTextAlignmentCenter);
   layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_week_layer));
 	
-
   line_layer = layer_create(layer_get_bounds(window_get_root_layer(window)));
   layer_set_update_proc(line_layer, line_layer_update_callback);
   layer_add_child(window_get_root_layer(window), line_layer);
 
   tick_timer_service_subscribe(MINUTE_UNIT, handle_minute_tick);
 
- text_event_title_layer = text_layer_create(GRect(5, 42, layer_get_bounds(window_get_root_layer(window)).size.w - 5, 31));
-  text_layer_set_text_color(text_event_title_layer, GColorWhite);
-  text_layer_set_background_color(text_event_title_layer, GColorClear);
-  text_layer_set_font(text_event_title_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
-  layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_event_title_layer));
-
-  text_event_start_date_layer = text_layer_create(GRect(5, 64, layer_get_bounds(window_get_root_layer(window)).size.w - 5, 31));
-  text_layer_set_text_color(text_event_start_date_layer, GColorWhite);
-  text_layer_set_background_color(text_event_start_date_layer, GColorClear);
-  text_layer_set_font(text_event_start_date_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24));
-  layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_event_start_date_layer));
-
+  // Event Location
   text_event_location_layer = text_layer_create(GRect(5, 22, layer_get_bounds(window_get_root_layer(window)).size.w - 5, 31));
   text_layer_set_text_color(text_event_location_layer, GColorWhite);
   text_layer_set_background_color(text_event_location_layer, GColorClear);
   text_layer_set_font(text_event_location_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24));
   layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_event_location_layer));
 
+  // Event Date
+  text_event_start_date_layer = text_layer_create(GRect(5, 64, layer_get_bounds(window_get_root_layer(window)).size.w - 5, 31));
+  text_layer_set_text_color(text_event_start_date_layer, GColorWhite);
+  text_layer_set_background_color(text_event_start_date_layer, GColorClear);
+  text_layer_set_font(text_event_start_date_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24));
+  layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_event_start_date_layer));
+
+  // Event title
+  text_event_title_layer = text_layer_create(GRect(5, 42, layer_get_bounds(window_get_root_layer(window)).size.w - 5, 31));
+  text_layer_set_text_color(text_event_title_layer, GColorWhite);
+  text_layer_set_background_color(text_event_title_layer, GColorClear);
+  text_layer_set_font(text_event_title_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
+  layer_add_child(window_get_root_layer(window), text_layer_get_layer(text_event_title_layer));
+
   // Init bluetooth connection handles
   bluetooth_connection_service_subscribe(&handle_bluetooth_connection);
-  handle_bluetooth_connection(bluetooth_connection_service_peek());
+  //handle_bluetooth_connection(bluetooth_connection_service_peek());
+	bluetooth_connected = bluetooth_connection_service_peek();
   
   icon_battery = gbitmap_create_with_resource(RESOURCE_ID_BATTERY_ICON);
 
@@ -468,18 +534,17 @@ void init() {
 
 void deinit() {
   app_message_deregister_callbacks();
+  tick_timer_service_unsubscribe();
+  bluetooth_connection_service_unsubscribe();
   layer_destroy(battery_layer);
-  gbitmap_destroy(icon_battery);
+  layer_destroy(line_layer);
+  text_layer_destroy(text_week_layer);
   text_layer_destroy(text_event_location_layer);
   text_layer_destroy(text_event_start_date_layer);
   text_layer_destroy(text_event_title_layer);
-  tick_timer_service_unsubscribe();
-  bluetooth_connection_service_unsubscribe();
-  layer_destroy(line_layer);
   text_layer_destroy(text_time_layer);
   text_layer_destroy(text_date_layer);
- // text_layer_destroy(text_week_layer);
-  text_layer_destroy(text_week_layer);
+  gbitmap_destroy(icon_battery);
   window_destroy(window);
 }
 
